@@ -16,6 +16,6 @@ pkgbase = polycodex
 	optdepends = libretranslate: Yerel veya uzak REST ceviri sunucusu destegi
 	optdepends = poppler: PDF piksel render ve gorsel kontrol araclari (pdftoppm, pdfimages)
 	source = polycodex-0.1.0.tar.gz::https://github.com/ozdil/polycodex/archive/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 9b40c2b7454bd28b5496eb5fbc9579f2bd38bff0b8c986af0893b53799b1ae01
 
 pkgname = polycodex
