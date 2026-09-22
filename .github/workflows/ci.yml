@@ -1,0 +1,43 @@
+name: CI & Multi-Platform Packaging
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Cargo Tests
+        run: cargo test --all-targets --verbose
+
+      - name: Build Standalone Binary
+        run: cargo build --release --bin polycodex
+
+      - name: Package Binary Artifact
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tar -czf polycodex-${{ github.ref_name }}-x86_64-linux.tar.gz -C target/release polycodex
+          sha256sum polycodex-${{ github.ref_name }}-x86_64-linux.tar.gz > polycodex-${{ github.ref_name }}-x86_64-linux.tar.gz.sha256
+
+      - name: Upload Release Assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            polycodex-${{ github.ref_name }}-x86_64-linux.tar.gz
+            polycodex-${{ github.ref_name }}-x86_64-linux.tar.gz.sha256
+            PKGBUILD
+            .SRCINFO
+            packaging/flatpak/org.ozdil.PolyCodex.yaml
+            snap/snapcraft.yaml

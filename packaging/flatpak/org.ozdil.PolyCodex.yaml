@@ -1,0 +1,38 @@
+app-id: org.ozdil.PolyCodex
+runtime: org.kde.Platform
+runtime-version: '6.7'
+sdk: org.kde.Sdk
+command: polycodex-gui
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --share=network
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=xdg-run/polycodex:create
+  - --talk-name=org.freedesktop.portal.FileChooser
+
+build-options:
+  append-path: /usr/lib/sdk/rust/bin
+  env:
+    CARGO_HOME: /run/build/polycodex/cargo
+
+modules:
+  - name: polycodex
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --bin polycodex
+      - install -Dm755 target/release/polycodex /app/bin/polycodex
+      - install -Dm755 polycodex-gui /app/bin/polycodex-gui
+      - install -Dm644 qml/shell.qml /app/share/polycodex/qml/shell.qml
+      - install -Dm644 qml/MainWindow.qml /app/share/polycodex/qml/MainWindow.qml
+      - install -Dm644 qml/Theme.qml /app/share/polycodex/qml/Theme.qml
+      - install -Dm644 polycodex.desktop /app/share/applications/org.ozdil.PolyCodex.desktop
+      - install -Dm644 polycodex.svg /app/share/icons/hicolor/scalable/apps/org.ozdil.PolyCodex.svg
+      - install -Dm644 packaging/flatpak/org.ozdil.PolyCodex.metainfo.xml /app/share/metainfo/org.ozdil.PolyCodex.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/ozdil/polycodex.git
+        tag: v0.1.0

@@ -1,0 +1,58 @@
+name: polycodex
+base: core24
+version: '0.1.0'
+summary: Universal 1:1 layout-preserving PDF translator
+description: |
+  PolyCodex translates PDF documents across any language while keeping images,
+  vector drawings, and page layouts 100% intact. Supports up to 5000 pages
+  with memory-bounded streaming and offline AI via Ollama.
+
+grade: stable
+confinement: strict
+license: MIT OR Apache-2.0
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+apps:
+  polycodex:
+    command: bin/polycodex
+    plugs:
+      - home
+      - network
+      - removable-media
+
+  gui:
+    command: bin/polycodex-gui
+    desktop: usr/share/applications/polycodex.desktop
+    extensions: [gnome]
+    plugs:
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - home
+      - network
+      - network-bind
+      - removable-media
+
+parts:
+  polycodex:
+    plugin: rust
+    source: .
+    rust-features: []
+    build-packages:
+      - gcc
+      - pkg-config
+      - libssl-dev
+
+  desktop-assets:
+    plugin: dump
+    source: .
+    organize:
+      polycodex-gui: bin/polycodex-gui
+      polycodex.desktop: usr/share/applications/polycodex.desktop
+      polycodex.svg: usr/share/icons/hicolor/scalable/apps/polycodex.svg
+      qml: usr/share/polycodex/qml

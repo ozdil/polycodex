@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.ozdil.PolyCodex</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>PolyCodex</name>
+  <summary>Universal 1:1 layout and image preserving PDF translator supporting up to 5000 pages</summary>
+  <description>
+    <p>
+      PolyCodex is a universal, open-source PDF translator that treats document layout, vector graphics, and image integrity as first-class constraints.
+    </p>
+    <p>
+      Key features include:
+    </p>
+    <ul>
+      <li>1:1 Preservation: Images (Do operators), vector lines, tables, and bounding boxes are untouched.</li>
+      <li>Dynamic Micro-Typography: Adjusts character scaling (Tz operator) to prevent target language overflow.</li>
+      <li>5000 Pages Streaming: Memory-bounded processing for massive technical manuals and books.</li>
+      <li>Offline AI: First-class integration with Ollama (Llama 3, Qwen 2.5), LibreTranslate, and LM Studio.</li>
+      <li>Single-Instance Lock: OS-level concurrency lock prevents process collisions.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.ozdil.PolyCodex.desktop</launchable>
+  <url type="homepage">https://github.com/ozdil/polycodex</url>
+  <url type="bugtracker">https://github.com/ozdil/polycodex/issues</url>
+  <provides>
+    <binary>polycodex</binary>
+    <binary>polycodex-gui</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-09-22">
+      <description>
+        <p>Initial release of PolyCodex featuring 1-1 layout preservation, dynamic Tz scaling, and Ollama integration.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>
