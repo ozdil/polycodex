@@ -41,22 +41,35 @@ PolyCodex, karmaşık akademik makaleleri, teknik kılavuzları, kitapları ve k
 
 ## Kurulum
 
-### Arch Linux (AUR / Pacman)
+### 1. Evrensel Tek Komutla Kurulum (Tum Linux Dagitimlari)
 
-PKGBUILD uzerinden yerel kurulum:
+Arch Linux, Ubuntu, Debian, Fedora, openSUSE ve Manjaro uzerinde derleme beklemeden dogrudan kurmak icin:
 
 ```bash
-cd pdf-translator
+curl -sSL https://raw.githubusercontent.com/ozdil/polycodex/main/install.sh | bash
+```
+
+### 2. Arch Linux (AUR / Pacman)
+
+PKGBUILD uzerinden yerel derlemeli kurulum:
+
+```bash
+git clone https://github.com/ozdil/polycodex.git
+cd polycodex
 makepkg -si
 ```
 
-Paket su bilesenleri sisteme kurar:
-- `/usr/bin/polycodex`: Rust cekirdek CLI
-- `/usr/bin/polycodex-gui`: QML masaustu baslatici
-- `/usr/share/polycodex/qml/*`: Quickshell arayuz bilesenleri
-- `/usr/share/applications/polycodex.desktop`: XDG masaustu kisayolu
-- `/usr/share/icons/hicolor/scalable/apps/polycodex.svg`: Vektorel uygulama ikonu
-- `/usr/share/licenses/polycodex/*`: MIT ve Apache-2.0 lisanslari
+### 3. Flatpak & Flathub
+
+```bash
+flatpak install flathub org.ozdil.PolyCodex
+```
+
+### 4. Snap Store (Ubuntu)
+
+```bash
+sudo snap install polycodex
+```
 
 ### Kaynaktan Derleme
 
