@@ -1,0 +1,21 @@
+pkgbase = polycodex
+	pkgdesc = 1-1 Mizanpaj ve gorselleri koruyan, 5000 sayfa kapasiteli evrensel acik kaynakli PDF cevirici
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/ozdil/polycodex
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	license = Apache-2.0
+	makedepends = cargo
+	depends = gcc-libs
+	depends = glibc
+	optdepends = quickshell: Modern ve hafif QML masaustu kullanici arayuzu
+	optdepends = zenity: Grafiksel dosya ve klasor secim pencereleri
+	optdepends = ollama: Yerel acik kaynakli yapay zeka ceviri modelleri
+	optdepends = libretranslate: Yerel veya uzak REST ceviri sunucusu destegi
+	optdepends = poppler: PDF piksel render ve gorsel kontrol araclari (pdftoppm, pdfimages)
+	source = polycodex-0.1.0.tar.gz::https://github.com/ozdil/polycodex/archive/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = polycodex

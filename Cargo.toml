@@ -1,0 +1,59 @@
+[package]
+name = "polycodex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ozan Ozdil <ozdil@example.com>"]
+description = "Universal, 1:1 layout and image preserving PDF translator supporting up to 5000 pages with AI and single-instance lock"
+readme = "README.md"
+homepage = "https://github.com/ozdil/polycodex"
+repository = "https://github.com/ozdil/polycodex"
+license = "MIT OR Apache-2.0"
+keywords = ["pdf", "translation", "layout-preservation", "ai", "quickshell"]
+categories = ["command-line-utilities", "text-processing"]
+
+[lib]
+name = "polycodex"
+path = "src/lib.rs"
+
+[[bin]]
+name = "polycodex"
+path = "src/main.rs"
+
+[dependencies]
+# PDF manipülasyonu ve nesne yönetimi
+lopdf = "0.33"
+
+# Platformlar arası tekil işlem dosya kilidi
+fs2 = "0.4"
+
+# Komut satırı ve interaktif etkileşim
+clap = { version = "4.5", features = ["derive"] }
+
+# Asenkron HTTP ve çalışma zamanı (Çeviri servisleri için)
+tokio = { version = "1.38", features = ["full"] }
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# İlerleme çubuğu (5000 sayfa takibi)
+indicatif = "0.17"
+
+# Hata yönetimi ve günlükleme
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Güvenli geçici dosya ve atomik yazım
+tempfile = "3.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

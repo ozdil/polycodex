@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Arka Plan Yuvarlatilmis Kalkan -->
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bgGrad)" stroke="#334155" stroke-width="2" filter="url(#shadow)" />
+
+  <!-- Sol Sayfa (Kaynak Dokuman) -->
+  <path d="M 28 32 L 60 32 C 62 32 64 34 64 36 L 64 96 C 64 94 62 92 60 92 L 28 92 C 26 92 24 90 24 88 L 24 36 C 24 34 26 32 28 32 Z" 
+        fill="#1e293b" stroke="#475569" stroke-width="2" />
+  <!-- Sol Sayfa Metin Cizgileri (Mizanpaj) -->
+  <line x1="32" y1="44" x2="56" y2="44" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="32" y1="54" x2="52" y2="54" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="32" y1="64" x2="56" y2="64" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="32" y1="74" x2="46" y2="74" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" />
+
+  <!-- Sag Sayfa (Hedef Kodeks / Cevrilmis Mizanpaj) -->
+  <path d="M 100 32 L 68 32 C 66 32 64 34 64 36 L 64 96 C 64 94 66 92 68 92 L 100 92 C 102 92 104 90 104 88 L 104 36 C 104 34 102 32 100 32 Z" 
+        fill="#0f172a" stroke="#475569" stroke-width="2" />
+  <!-- Sag Sayfa Parlayan Metin Cizgileri -->
+  <line x1="72" y1="44" x2="96" y2="44" stroke="url(#accentGrad)" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="72" y1="54" x2="92" y2="54" stroke="url(#accentGrad)" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="72" y1="64" x2="96" y2="64" stroke="url(#accentGrad)" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="72" y1="74" x2="86" y2="74" stroke="url(#accentGrad)" stroke-width="2.5" stroke-linecap="round" />
+
+  <!-- Merkez Kodeks Omurgasi -->
+  <line x1="64" y1="30" x2="64" y2="98" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Dinamik Ceviri Akisi ve Kilit Sembolu (Guvenli & 1-1 Koruma) -->
+  <circle cx="64" cy="64" r="14" fill="#0f172a" stroke="url(#primaryGrad)" stroke-width="2.5" />
+  <!-- Evrensel Donusum Ok / Akis Simgesi -->
+  <path d="M 58 64 L 70 64 M 66 60 L 70 64 L 66 68" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

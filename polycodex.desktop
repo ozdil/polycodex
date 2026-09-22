@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Name=PolyCodex
+GenericName=Universal Layout-Preserving PDF Translator
+GenericName[tr]=Evrensel Mizanpaj Koruyan PDF Çevirici
+Comment=1-1 Layout, vector and image preserving PDF translator supporting up to 5000 pages with local/remote AI
+Comment[tr]=Mizanpaji, vektorleri ve gorselleri bozmadan 5000 sayfaya kadar PDF ceviren yapay zeka destekli masaustu uygulamasi
+Exec=polycodex-gui %U
+Icon=polycodex
+Terminal=false
+Categories=Office;Utility;Publishing;
+MimeType=application/pdf;
+Keywords=pdf;translate;translator;ai;layout;book;publishing;polycodex;
+StartupNotify=true
+StartupWMClass=polycodex
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Translation Window
+Name[tr]=Yeni Çeviri Penceresi
+Exec=polycodex-gui

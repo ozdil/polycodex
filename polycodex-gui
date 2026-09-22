@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PolyCodex GUI Baslatici (Arch Linux / FHS Uyumlu)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Guvenli QML dosya konumu cozumleme
+QML_SHELL=""
+if [[ -f "${SCRIPT_DIR}/qml/shell.qml" ]]; then
+    # 1. Oncelik: Yerel gelistirme repo ortami
+    QML_SHELL="${SCRIPT_DIR}/qml/shell.qml"
+    export PATH="${SCRIPT_DIR}/target/release:${SCRIPT_DIR}/target/debug:${PATH}"
+elif [[ -f "/usr/share/polycodex/qml/shell.qml" ]]; then
+    # 2. Oncelik: Sistem geneli FHS kurulum yolu (/usr/share/polycodex)
+    QML_SHELL="/usr/share/polycodex/qml/shell.qml"
+elif [[ -f "${XDG_DATA_HOME:-$HOME/.local/share}/polycodex/qml/shell.qml" ]]; then
+    # 3. Oncelik: Kullanici seviyesi yerel kurulum yolu
+    QML_SHELL="${XDG_DATA_HOME:-$HOME/.local/share}/polycodex/qml/shell.qml"
+else
+    echo "HATA: PolyCodex QML kabuk dosyasi bulunamadi (shell.qml)." >&2
+    echo "Lutfen paketin eksiksiz kuruldugundan emin olunuz." >&2
+    exit 1
+fi
+
+if ! command -v quickshell &> /dev/null; then
+    echo "HATA: 'quickshell' sistemde kurulu degil." >&2
+    echo "Lutfen 'pacman -S quickshell' veya AUR uzerinden yukleyiniz." >&2
+    exit 1
+fi
+
+exec quickshell -p "${QML_SHELL}" "$@"

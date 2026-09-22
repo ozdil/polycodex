@@ -1,0 +1,18 @@
+# Rust derleme ciktilari
+target/
+**/*.rs.bk
+
+# Gecici dosyalar ve test cikti PDF'leri
+*.tmp_*
+.tmp_*
+*_tr.pdf
+lora_paper_*.pdf
+vit_document_*.pdf
+test_document_*.pdf
+catalog_sample*.pdf
+
+# Isletim sistemi ve editor dosyalari
+.DS_Store
+Thumbs.db
+*.swp
+*~
