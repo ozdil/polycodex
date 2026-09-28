@@ -111,6 +111,10 @@ async fn main() -> Result<()> {
             let url = args.api_url.unwrap_or_else(|| "http://localhost:11434".to_string());
             Box::new(OllamaBackend::new(url, args.ollama_model))
         }
+        "openai" => {
+            let url = args.api_url.unwrap_or_else(|| "http://localhost:1234".to_string());
+            Box::new(polycodex::translator::OpenAiBackend::new(url, args.openai_model, args.api_key))
+        }
         "mock" => Box::new(MockBackend),
         other => {
             println!("Bilinmeyen saglayici '{}', Mock motoruna geri donuluyor.", other);

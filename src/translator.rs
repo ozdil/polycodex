@@ -197,6 +197,64 @@ impl TranslationBackend for MockBackend {
     }
 }
 
+use zeroize::Zeroize;
+
+/// Sifir Guven (Zero-Trust) ve Askeri Duzey Guvenlik kapsaminda servis URL adresi denetimi.
+/// - Yalnizca localhost (127.0.0.1, ::1) icin HTTP baglantilarina izin verilir.
+/// - Tum uzak harici servisler icin kesinlikle HTTPS zorunludur (Cleartext intercept onleme).
+/// - Bulut metadata IP ve host adresleri (169.254.169.254, 100.100.100.200, metadata.google.internal) engellenir (SSRF korumasi).
+/// - Kontrol karakterleri kesinlikle reddedilir.
+pub fn validate_service_url(raw: &str) -> Result<String> {
+    if raw.chars().any(|c| c.is_control()) {
+        anyhow::bail!("Servis URL adresinde gecersiz kontrol karakterleri tespit edildi.");
+    }
+    let trimmed = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(trimmed)
+        .with_context(|| format!("Gecersiz servis URL adresi: {}", trimmed))?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        anyhow::bail!("Servis URL yalnizca http veya https protokolu kullanabilir: {}", scheme);
+    }
+    let host = parsed.host()
+        .ok_or_else(|| anyhow::anyhow!("Servis URL adresinde gecerli bir sunucu (host) belirtilmedi."))?;
+
+    let is_local_or_private = match host {
+        url::Host::Domain(d) => {
+            let d_lower = d.to_lowercase();
+            if d_lower == "metadata.google.internal" {
+                anyhow::bail!("Guvenlik ihlali: Bulut metadata servislerine erisim engellendi (SSRF korumasi): {}", d);
+            }
+            d_lower == "localhost"
+        }
+        url::Host::Ipv4(ipv4) => {
+            if ipv4.is_link_local() {
+                anyhow::bail!("Guvenlik ihlali: Link-local ve metadata adreslerine erisim engellendi: {}", ipv4);
+            }
+            if ipv4.octets() == [100, 100, 100, 200] {
+                anyhow::bail!("Guvenlik ihlali: Bulut metadata IP adresine erisim engellendi: {}", ipv4);
+            }
+            ipv4.is_loopback() || ipv4.is_private()
+        }
+        url::Host::Ipv6(ipv6) => {
+            let seg = ipv6.segments();
+            if (seg[0] & 0xffc0) == 0xfe80 {
+                anyhow::bail!("Guvenlik ihlali: IPv6 Link-local adresine erisim engellendi: {}", ipv6);
+            }
+            ipv6.is_loopback()
+        }
+    };
+
+    // Askeri duzey iletisim guvenligi: Genel agdaki uzak baglantilarda HTTP engellenir
+    if scheme == "http" && !is_local_or_private {
+        anyhow::bail!(
+            "Guvenlik ihlali: Genel agdaki uzak cevirici servisleri icin HTTP guvensizdir. Yalnizca HTTPS kullanilmalidir: {}",
+            trimmed
+        );
+    }
+
+    Ok(trimmed.to_string())
+}
+
 // -----------------------------------------------------------------------------
 // 2. LibreTranslate Motoru (Acik Kaynak REST API)
 // -----------------------------------------------------------------------------
@@ -208,10 +266,20 @@ pub struct LibreTranslateBackend {
 
 impl LibreTranslateBackend {
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        let validated = validate_service_url(&base_url)
+            .unwrap_or_else(|_| "https://libretranslate.com".to_string());
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: validated,
             api_key,
             client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl Drop for LibreTranslateBackend {
+    fn drop(&mut self) {
+        if let Some(ref mut key) = self.api_key {
+            key.zeroize();
         }
     }
 }
@@ -298,8 +366,10 @@ pub struct OllamaBackend {
 
 impl OllamaBackend {
     pub fn new(endpoint: String, model: String) -> Self {
+        let validated = validate_service_url(&endpoint)
+            .unwrap_or_else(|_| "http://localhost:11434".to_string());
         Self {
-            endpoint: endpoint.trim_end_matches('/').to_string(),
+            endpoint: validated,
             model,
             client: reqwest::Client::new(),
         }
@@ -364,3 +434,156 @@ impl TranslationBackend for OllamaBackend {
         "Ollama (Yerel LLM Acik Kaynak)"
     }
 }
+
+// -----------------------------------------------------------------------------
+// 4. OpenAI / LM Studio / vLLM Uyumlu REST Motoru
+// -----------------------------------------------------------------------------
+pub struct OpenAiBackend {
+    endpoint: String,
+    model: String,
+    api_key: Option<String>,
+    client: reqwest::Client,
+}
+
+impl OpenAiBackend {
+    pub fn new(endpoint: String, model: String, api_key: Option<String>) -> Self {
+        let validated = validate_service_url(&endpoint)
+            .unwrap_or_else(|_| "http://localhost:1234".to_string());
+        Self {
+            endpoint: validated,
+            model,
+            api_key,
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl Drop for OpenAiBackend {
+    fn drop(&mut self) {
+        if let Some(ref mut key) = self.api_key {
+            key.zeroize();
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct OpenAiChatRequest<'a> {
+    model: &'a str,
+    messages: Vec<OpenAiMessage<'a>>,
+    temperature: f32,
+}
+
+#[derive(Serialize)]
+struct OpenAiMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChatResponse {
+    choices: Vec<OpenAiChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiChoice {
+    message: OpenAiResponseMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenAiResponseMessage {
+    content: String,
+}
+
+#[async_trait::async_trait]
+impl TranslationBackend for OpenAiBackend {
+    async fn translate(
+        &self,
+        texts: &[String],
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Result<Vec<String>> {
+        let mut results = Vec::with_capacity(texts.len());
+        let chat_url = format!("{}/v1/chat/completions", self.endpoint);
+
+        for text in texts {
+            let system_prompt = format!(
+                "You are an exact 1:1 translation engine. Translate from {} to {}. Output ONLY the translated text without extra explanation, markdown wrapping, or commentary.",
+                source_lang, target_lang
+            );
+
+            let messages = vec![
+                OpenAiMessage {
+                    role: "system",
+                    content: &system_prompt,
+                },
+                OpenAiMessage {
+                    role: "user",
+                    content: text,
+                },
+            ];
+
+            let payload = OpenAiChatRequest {
+                model: &self.model,
+                messages,
+                temperature: 0.1,
+            };
+
+            let mut req = self.client.post(&chat_url).json(&payload);
+            if let Some(ref key) = self.api_key {
+                req = req.bearer_auth(key);
+            }
+
+            let resp = req
+                .send()
+                .await
+                .context("OpenAI uyumlu REST servisine baglanilamadi")?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                anyhow::bail!("OpenAI servisi hatasi (HTTP {}): {}", status, body);
+            }
+
+            let data: OpenAiChatResponse = resp.json().await?;
+            let reply = data
+                .choices
+                .into_iter()
+                .next()
+                .map(|c| c.message.content.trim().to_string())
+                .unwrap_or_else(|| text.clone());
+
+            results.push(reply);
+        }
+
+        Ok(results)
+    }
+
+    fn name(&self) -> &'static str {
+        "OpenAI / LM Studio / vLLM REST"
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_service_url_valid() {
+        assert!(validate_service_url("http://localhost:11434").is_ok());
+        assert!(validate_service_url("https://libretranslate.com/").is_ok());
+        assert!(validate_service_url("http://192.168.1.50:5000").is_ok());
+    }
+
+    #[test]
+    fn test_validate_service_url_invalid() {
+        // Control characters
+        assert!(validate_service_url("http://localhost:11434\n").is_err());
+        // Non-http schemes
+        assert!(validate_service_url("ftp://example.com").is_err());
+        assert!(validate_service_url("file:///etc/passwd").is_err());
+        // Malformed
+        assert!(validate_service_url("not a url").is_err());
+    }
+}
+

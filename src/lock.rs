@@ -36,7 +36,10 @@ impl SingleInstanceLock {
     pub fn acquire() -> Result<Self, LockError> {
         let lock_path = Self::resolve_secure_lock_path()?;
 
-        // Guvenlik Denetimi: Sembolik bag (Symlink) kontrolu (TOCTOU savunmasi)
+        #[cfg(unix)]
+        let current_uid = unsafe { libc::geteuid() };
+
+        // Guvenlik Denetimi: Sembolik bag (Symlink), sahiplik (UID) ve Hardlink kontrolu (TOCTOU savunmasi)
         if lock_path.exists() {
             let meta = fs::symlink_metadata(&lock_path)
                 .map_err(|e| LockError::Io(e))?;
@@ -45,6 +48,22 @@ impl SingleInstanceLock {
                     "Kilit dosyasi bir sembolik bagdir (symlink attack mitigation): {:?}",
                     lock_path
                 )));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if meta.uid() != current_uid {
+                    return Err(LockError::SecurityViolation(format!(
+                        "Kilit dosyasi mevcut kullaniciya ait degildir (UID mismatch): {:?}",
+                        lock_path
+                    )));
+                }
+                if meta.nlink() > 1 {
+                    return Err(LockError::SecurityViolation(format!(
+                        "Kilit dosyasinda coklu baglanti (hardlink) tespit edildi: {:?}",
+                        lock_path
+                    )));
+                }
             }
         }
 
@@ -60,10 +79,24 @@ impl SingleInstanceLock {
 
         let file = open_options.open(&lock_path)?;
 
-        // Dosya izinlerinin 0600 oldugunu kesinlestir
+        // Dosya sahipligi ve izinlerinin 0600 oldugunu kesinlestir
         #[cfg(unix)]
         {
-            let mut perms = file.metadata()?.permissions();
+            use std::os::unix::fs::MetadataExt;
+            let file_meta = file.metadata()?;
+            if file_meta.uid() != current_uid {
+                return Err(LockError::SecurityViolation(format!(
+                    "Acilan kilit dosyasi mevcut kullaniciya ait degildir: {:?}",
+                    lock_path
+                )));
+            }
+            if file_meta.nlink() > 1 {
+                return Err(LockError::SecurityViolation(format!(
+                    "Acilan kilit dosyasinda coklu baglanti (hardlink) tespit edildi: {:?}",
+                    lock_path
+                )));
+            }
+            let mut perms = file_meta.permissions();
             perms.set_mode(0o600);
             let _ = file.set_permissions(perms);
         }

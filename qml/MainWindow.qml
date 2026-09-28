@@ -48,19 +48,24 @@ Rectangle {
         return lastSlash > 0 ? inputPath.substring(0, lastSlash) : ".";
     }
 
+    // Provider Configuration State
+    property string apiUrl: ""
+    property string apiKey: ""
+    property string ollamaModel: "llama3"
+    property string openaiModel: "gpt-4o-mini"
+
+    function resolvePolycodexPath() {
+        var home = Quickshell.env("HOME") || ""
+        if (home.length > 0) {
+            return home + "/.local/bin/polycodex"
+        }
+        return "/usr/bin/polycodex"
+    }
+
     // External Rust Engine Process (PolyCodex Core)
     Process {
         id: translatorProc
-        command: [
-            "polycodex",
-            "--input", root.inputPath,
-            "--source-lang", root.sourceLang,
-            "--target-lang", root.targetLang,
-            "--output-name", root.resolvedOutputName,
-            "--output-dir", root.resolvedOutputDir,
-            "--provider", root.selectedProvider,
-            "--non-interactive"
-        ]
+        command: []
 
         stdout: SplitParser {
             onRead: text => {
@@ -139,11 +144,34 @@ Rectangle {
             statusMessage = "Warning: Please select a valid PDF file first.";
             return;
         }
+        var cmd = [
+            root.resolvePolycodexPath(),
+            "--input", root.inputPath,
+            "--source-lang", root.sourceLang,
+            "--target-lang", root.targetLang,
+            "--output-name", root.resolvedOutputName,
+            "--output-dir", root.resolvedOutputDir,
+            "--provider", root.selectedProvider,
+            "--non-interactive"
+        ];
+        if (root.apiUrl.trim().length > 0) {
+            cmd.push("--api-url", root.apiUrl.trim());
+        }
+        if (root.apiKey.trim().length > 0) {
+            cmd.push("--api-key", root.apiKey.trim());
+        }
+        if (root.selectedProvider === "ollama" && root.ollamaModel.trim().length > 0) {
+            cmd.push("--ollama-model", root.ollamaModel.trim());
+        }
+        if (root.selectedProvider === "openai" && root.openaiModel.trim().length > 0) {
+            cmd.push("--openai-model", root.openaiModel.trim());
+        }
+        translatorProc.command = cmd;
         root.isTranslating = true;
         root.currentPage = 0;
         root.progressPercentage = 0.0;
         root.statusMessage = "Translation engine starting...";
-        root.appendLog("[SYSTEM] Engine launched: " + root.inputPath + " -> " + root.targetLang);
+        root.appendLog("[SYSTEM] Engine launched: " + root.inputPath + " -> " + root.targetLang + " via " + root.selectedProvider);
         translatorProc.running = true;
     }
 
@@ -281,7 +309,7 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                implicitHeight: 190
+                implicitHeight: root.selectedProvider === "mock" ? 190 : 255
                 color: Theme.bgSurface
                 radius: Theme.radiusMd
                 border.color: Theme.border
@@ -421,9 +449,9 @@ Rectangle {
                         RowLayout {
                             spacing: 8
                             Repeater {
-                                model: ["mock", "libretranslate", "ollama"]
+                                model: ["mock", "libretranslate", "ollama", "openai"]
                                 delegate: Rectangle {
-                                    implicitWidth: 100
+                                    implicitWidth: 80
                                     implicitHeight: 28
                                     radius: Theme.radiusSm
                                     color: root.selectedProvider === modelData ? Theme.accent : Theme.bgCard
@@ -444,6 +472,96 @@ Rectangle {
                             }
                         }
                     }
+
+                    // Provider Configuration Fields (Dynamic for LibreTranslate and Ollama)
+                    ColumnLayout {
+                        visible: root.selectedProvider !== "mock"
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: "Service API URL:"
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 10
+                                    color: Theme.textDim
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 28
+                                    color: Theme.bgCard
+                                    radius: Theme.radiusSm
+                                    border.color: Theme.borderLight
+                                    TextInput {
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        font.family: Theme.monoFont
+                                        font.pixelSize: 11
+                                        color: Theme.textMain
+                                        text: root.apiUrl
+                                        onTextChanged: root.apiUrl = text
+                                    }
+                                    Text {
+                                        visible: root.apiUrl.length === 0
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.leftMargin: 4
+                                        text: root.selectedProvider === "ollama" ? "http://localhost:11434" : (root.selectedProvider === "openai" ? "http://localhost:1234" : "https://libretranslate.com")
+                                        font.family: Theme.monoFont
+                                        font.pixelSize: 11
+                                        color: Theme.textDim
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: root.selectedProvider === "ollama" ? "Model Name:" : (root.selectedProvider === "openai" ? "Model Name:" : "API Key:")
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 10
+                                    color: Theme.textDim
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 28
+                                    color: Theme.bgCard
+                                    radius: Theme.radiusSm
+                                    border.color: Theme.borderLight
+                                    TextInput {
+                                        anchors.fill: parent
+                                        anchors.margins: 4
+                                        font.family: Theme.monoFont
+                                        font.pixelSize: 11
+                                        color: Theme.textMain
+                                        text: root.selectedProvider === "ollama" ? root.ollamaModel : (root.selectedProvider === "openai" ? root.openaiModel : root.apiKey)
+                                        onTextChanged: {
+                                            if (root.selectedProvider === "ollama") root.ollamaModel = text;
+                                            else if (root.selectedProvider === "openai") root.openaiModel = text;
+                                            else root.apiKey = text;
+                                        }
+                                    }
+                                    Text {
+                                        visible: (root.selectedProvider === "ollama" ? root.ollamaModel.length === 0 : (root.selectedProvider === "openai" ? root.openaiModel.length === 0 : root.apiKey.length === 0))
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        anchors.leftMargin: 4
+                                        text: root.selectedProvider === "ollama" ? "llama3" : (root.selectedProvider === "openai" ? "gpt-4o-mini" : "Optional Key")
+                                        font.family: Theme.monoFont
+                                        font.pixelSize: 11
+                                        color: Theme.textDim
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -451,7 +569,7 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                implicitHeight: 190
+                implicitHeight: root.selectedProvider === "mock" ? 190 : 255
                 color: Theme.bgSurface
                 radius: Theme.radiusMd
                 border.color: Theme.border

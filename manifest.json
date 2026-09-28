@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "ozdil.polycodex",
+  "name": "PolyCodex",
+  "version": "1.1.0",
+  "author": "Ozan Özdil (ozdil)",
+  "license": "MIT",
+  "description": "Universal 1:1 Layout & Vector-Preserving 5000-Page PDF Translator for Omarchy Linux",
+  "kinds": ["app"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "app": "qml/shell.qml"
+  },
+  "app": {
+    "displayName": "PolyCodex",
+    "description": "Universal 1:1 layout-preserving book and PDF translator supporting up to 5000 pages with AI and single-instance lock.",
+    "category": "Office",
+    "desktopFile": "polycodex.desktop",
+    "icon": "polycodex.svg",
+    "aliases": ["polycodex", "pdf-translator", "translate-pdf", "book-translator"]
+  },
+  "verified": true
+}

@@ -13,6 +13,35 @@ use crate::translator::CachedTranslator;
 pub const MAX_ALLOWED_PAGES: usize = 5000;
 pub const MAX_INPUT_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB DoS tavan siniri
 
+/// Denetler: Cikti yolu kritik sistem dizinlerine (/etc, /usr, /boot, /sys, /proc, /dev, /root vb.) yonlenemez.
+pub fn is_confined_output_path(path: &Path) -> bool {
+    let canonical = if path.exists() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else if let Some(parent) = path.parent() {
+        if parent.exists() {
+            let parent_canon = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
+            parent_canon.join(path.file_name().unwrap_or_default())
+        } else {
+            path.to_path_buf()
+        }
+    } else {
+        path.to_path_buf()
+    };
+
+    let path_str = canonical.to_string_lossy();
+    let forbidden_prefixes = [
+        "/etc", "/usr", "/boot", "/sys", "/proc", "/dev", "/root",
+        "/bin", "/sbin", "/lib", "/lib64",
+    ];
+
+    for prefix in &forbidden_prefixes {
+        if path_str == *prefix || path_str.starts_with(&format!("{}/", prefix)) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Mizanpaj koruyucu PDF cevirici motoru.
 pub struct PdfTranslatorEngine<'a> {
     translator: &'a CachedTranslator,
@@ -36,12 +65,24 @@ impl<'a> PdfTranslatorEngine<'a> {
         source_lang: &str,
         target_lang: &str,
     ) -> Result<()> {
-        // 1. Girdi dosyasinin varligini, sembolik bag ve boyut guvenligini denetle
+        // 1. Girdi dosyasinin varligini, duzenli dosya, sembolik bag, hardlink ve boyut guvenligini denetle
         let meta = std::fs::symlink_metadata(input_path)
             .with_context(|| format!("Girdi dosyasi bulunamadi: {:?}", input_path))?;
         
         if meta.file_type().is_symlink() {
             anyhow::bail!("Guvenlik uyarisi: Sembolik bag (symlink) olan dosyalar islenemez: {:?}", input_path);
+        }
+
+        if !meta.file_type().is_file() {
+            anyhow::bail!("Guvenlik uyarisi: Girdi bir duzenli dosya (regular file) degildir: {:?}", input_path);
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if meta.nlink() > 1 {
+                anyhow::bail!("Guvenlik uyarisi: Girdi dosyasi coklu baglantiya (hardlink) sahiptir: {:?}", input_path);
+            }
         }
 
         if meta.len() > MAX_INPUT_FILE_SIZE {
@@ -51,8 +92,28 @@ impl<'a> PdfTranslatorEngine<'a> {
             );
         }
 
-        // 2. PDF belgesini yukle
-        let mut doc = Document::load(input_path)
+        // Cikti yolunun sistem dizinlerine yazma girisimi olup olmadigini denetle
+        if !is_confined_output_path(output_path) {
+            anyhow::bail!("Guvenlik ihlali: Sistem dizinlerine cikti yazilamaz: {:?}", output_path);
+        }
+
+        // 2. PDF belgesini sinirlandirilmis akis ve O_NOFOLLOW ile yukle (take(MAX + 1))
+        use std::io::Read;
+        #[cfg(unix)]
+        let file = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(input_path)
+                .with_context(|| format!("Girdi dosyasi acilamadi: {:?}", input_path))?
+        };
+        #[cfg(not(unix))]
+        let file = std::fs::File::open(input_path)
+            .with_context(|| format!("Girdi dosyasi acilamadi: {:?}", input_path))?;
+
+        let mut bounded_reader = file.take(MAX_INPUT_FILE_SIZE + 1);
+        let mut doc = Document::load_from(&mut bounded_reader)
             .with_context(|| format!("PDF belgesi ayristirilamadi: {:?}", input_path))?;
 
         // 3. 5000 sayfa siniri kontrolu
@@ -98,7 +159,7 @@ impl<'a> PdfTranslatorEngine<'a> {
         Ok(())
     }
 
-    /// Tek bir sayfanin icerik akisini (Content Stream) ayristirir ve mikrotipografik olarak donusturur.
+    /// Tek bir sayfanin icerik akisini (Content Stream) ayristirir, metinleri toplu cevirir (page-batching) ve mikrotipografik olarak donusturur.
     async fn process_page(
         &self,
         doc: &mut Document,
@@ -111,36 +172,122 @@ impl<'a> PdfTranslatorEngine<'a> {
             Err(_) => return Ok(()), // Icerigi bos veya cozumlenemeyen sayfalar
         };
 
-        let mut new_operations = Vec::with_capacity(content.operations.len());
+        // 1. Gecis: Sayfadaki tum cevrilmesi gereken metinleri tespit et ve topla
         let mut in_text_block = false;
+        let mut texts_to_translate = Vec::new();
+        let mut text_item_indices = Vec::new();
 
-        for op in content.operations {
+        for (op_idx, op) in content.operations.iter().enumerate() {
             match op.operator.as_str() {
-                // Metin blogu baslangici
+                "BT" => in_text_block = true,
+                "ET" => in_text_block = false,
+                "Tj" | "'" if in_text_block => {
+                    let operand = if op.operator == "'" {
+                        op.operands.first()
+                    } else {
+                        op.operands.first()
+                    };
+                    if let Some(opnd) = operand {
+                        if let Some(t) = extract_text_from_object(opnd) {
+                            if !t.trim().is_empty() && should_translate(&t) {
+                                text_item_indices.push((op_idx, t.clone()));
+                                texts_to_translate.push(t);
+                            }
+                        }
+                    }
+                }
+                "\"" if in_text_block => {
+                    if op.operands.len() >= 3 {
+                        if let Some(t) = extract_text_from_object(&op.operands[2]) {
+                            if !t.trim().is_empty() && should_translate(&t) {
+                                text_item_indices.push((op_idx, t.clone()));
+                                texts_to_translate.push(t);
+                            }
+                        }
+                    }
+                }
+                "TJ" if in_text_block => {
+                    if let Some(Object::Array(arr)) = op.operands.first() {
+                        let mut full_text = String::new();
+                        for item in arr {
+                            if let Some(s) = extract_text_from_object(item) {
+                                full_text.push_str(&s);
+                            }
+                        }
+                        if !full_text.trim().is_empty() && should_translate(&full_text) {
+                            text_item_indices.push((op_idx, full_text.clone()));
+                            texts_to_translate.push(full_text);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 2. Sayfadaki metinleri tekil batch olarak ceviriciye ilet (JEV-POLY-01 Kurali)
+        let translated_batch = if !texts_to_translate.is_empty() {
+            self.translator
+                .translate_batch(&texts_to_translate, source_lang, target_lang)
+                .await?
+        } else {
+            Vec::new()
+        };
+
+        let mut translation_map = std::collections::HashMap::new();
+        for ((op_idx, orig_text), trans_text) in text_item_indices.into_iter().zip(translated_batch.into_iter()) {
+            translation_map.insert(op_idx, (orig_text, trans_text));
+        }
+
+        // 3. Gecis: Operatorleri mikrotipografik olarak yeniden olustur
+        let mut new_operations = Vec::with_capacity(content.operations.len());
+        in_text_block = false;
+
+        for (op_idx, op) in content.operations.into_iter().enumerate() {
+            match op.operator.as_str() {
                 "BT" => {
                     in_text_block = true;
                     new_operations.push(op);
                 }
-                // Metin blogu bitisi
                 "ET" => {
                     in_text_block = false;
                     new_operations.push(op);
                 }
-                // Metin gosterme operatorleri (Tj, TJ, ', ")
                 "Tj" if in_text_block => {
-                    let transformed = self
-                        .transform_tj_op(op, source_lang, target_lang)
-                        .await?;
-                    new_operations.extend(transformed);
+                    if let Some((orig, trans)) = translation_map.get(&op_idx) {
+                        new_operations.extend(Self::build_microtypography_ops(orig, trans));
+                    } else {
+                        new_operations.push(op);
+                    }
                 }
                 "TJ" if in_text_block => {
-                    let transformed = self
-                        .transform_tj_array_op(op, source_lang, target_lang)
-                        .await?;
-                    new_operations.extend(transformed);
+                    if let Some((orig, trans)) = translation_map.get(&op_idx) {
+                        new_operations.extend(Self::build_microtypography_ops(orig, trans));
+                    } else {
+                        new_operations.push(op);
+                    }
                 }
-                // Diger tum operatorler (Do: Gorseller, re: dikdortgenler, m/l/c: cizgiler, f/S: boyama/kontur)
-                // KESINLIKLE DOKUNULMADAN KORUNUR (1-1 Mizanpaj ve gorsel butunlugu).
+                "'" if in_text_block => {
+                    new_operations.push(Operation::new("T*", vec![]));
+                    if let Some((orig, trans)) = translation_map.get(&op_idx) {
+                        new_operations.extend(Self::build_microtypography_ops(orig, trans));
+                    } else {
+                        new_operations.push(Operation::new("Tj", op.operands));
+                    }
+                }
+                "\"" if in_text_block => {
+                    if op.operands.len() >= 3 {
+                        new_operations.push(Operation::new("Tw", vec![op.operands[0].clone()]));
+                        new_operations.push(Operation::new("Tc", vec![op.operands[1].clone()]));
+                        new_operations.push(Operation::new("T*", vec![]));
+                        if let Some((orig, trans)) = translation_map.get(&op_idx) {
+                            new_operations.extend(Self::build_microtypography_ops(orig, trans));
+                        } else {
+                            new_operations.push(Operation::new("Tj", vec![op.operands[2].clone()]));
+                        }
+                    } else {
+                        new_operations.push(op);
+                    }
+                }
                 _ => {
                     new_operations.push(op);
                 }
@@ -157,99 +304,11 @@ impl<'a> PdfTranslatorEngine<'a> {
         Ok(())
     }
 
-    /// Tj (tekli metin dizisi) operatorunu mizanpaji bozmayacak sekilde donusturur.
-    async fn transform_tj_op(
-        &self,
-        op: Operation,
-        source_lang: &str,
-        target_lang: &str,
-    ) -> Result<Vec<Operation>> {
-        if op.operands.is_empty() {
-            return Ok(vec![op]);
-        }
-
-        let operand = &op.operands[0];
-        let original_text = match extract_text_from_object(operand) {
-            Some(t) if !t.trim().is_empty() && should_translate(&t) => t,
-            _ => return Ok(vec![op]),
-        };
-
-        let translated = self
-            .translator
-            .translate_block(&original_text, source_lang, target_lang)
-            .await?;
-
-        // Mikrotipografik sigdirma:
-        // Eger cevrilen metin orijinalden uzunsa, yatay olcek (Tz) uygulayarak sinirlayici kutudan tasmasini onle
+    /// Orijinal ve cevrilmis metne gore Tz mikrotipografik olcekleme operatorlerini olusturur.
+    fn build_microtypography_ops(original_text: &str, translated_text: &str) -> Vec<Operation> {
         let mut ops = Vec::new();
         let orig_len = original_text.chars().count().max(1);
-        let trans_len = translated.chars().count().max(1);
-
-        let scale_ratio = if trans_len > orig_len {
-            let ratio = (orig_len as f32 / trans_len as f32) * 100.0;
-            // Maksimum %70 daraltma toleransi uygula
-            ratio.clamp(70.0, 100.0)
-        } else {
-            100.0
-        };
-
-        if (scale_ratio - 100.0).abs() > 0.5 {
-            // Tz (Horizontal Scaling) operatoru ekle
-            ops.push(Operation::new("Tz", vec![Object::Real(scale_ratio)]));
-        }
-
-        ops.push(Operation::new(
-            "Tj",
-            vec![Object::String(
-                translated.into_bytes(),
-                StringFormat::Literal,
-            )],
-        ));
-
-        // Eger Tz uygulandiysa normale dondur (%100)
-        if (scale_ratio - 100.0).abs() > 0.5 {
-            ops.push(Operation::new("Tz", vec![Object::Real(100.0)]));
-        }
-
-        Ok(ops)
-    }
-
-    /// TJ (kerning dizisi iceren metin) operatorunu ayristirir ve mizanpaj koruyarak donusturur.
-    async fn transform_tj_array_op(
-        &self,
-        op: Operation,
-        source_lang: &str,
-        target_lang: &str,
-    ) -> Result<Vec<Operation>> {
-        if op.operands.is_empty() {
-            return Ok(vec![op]);
-        }
-
-        let array_obj = match &op.operands[0] {
-            Object::Array(arr) => arr,
-            _ => return Ok(vec![op]),
-        };
-
-        // TJ icerisindeki tum metin parcalarinin birlesimi
-        let mut full_text = String::new();
-        for item in array_obj {
-            if let Some(s) = extract_text_from_object(item) {
-                full_text.push_str(&s);
-            }
-        }
-
-        if full_text.trim().is_empty() || !should_translate(&full_text) {
-            return Ok(vec![op]);
-        }
-
-        let translated = self
-            .translator
-            .translate_block(&full_text, source_lang, target_lang)
-            .await?;
-
-        let orig_len = full_text.chars().count().max(1);
-        let trans_len = translated.chars().count().max(1);
-        let mut ops = Vec::new();
+        let trans_len = translated_text.chars().count().max(1);
 
         let scale_ratio = if trans_len > orig_len {
             let ratio = (orig_len as f32 / trans_len as f32) * 100.0;
@@ -265,7 +324,7 @@ impl<'a> PdfTranslatorEngine<'a> {
         ops.push(Operation::new(
             "Tj",
             vec![Object::String(
-                translated.into_bytes(),
+                translated_text.as_bytes().to_vec(),
                 StringFormat::Literal,
             )],
         ));
@@ -274,14 +333,54 @@ impl<'a> PdfTranslatorEngine<'a> {
             ops.push(Operation::new("Tz", vec![Object::Real(100.0)]));
         }
 
-        Ok(ops)
+        ops
     }
+
+
 
     /// Cikti dosyasini atomik ve guvenli olarak kaydeder.
     fn save_atomically(&self, doc: &mut Document, target_path: &Path) -> Result<()> {
+        if !is_confined_output_path(target_path) {
+            anyhow::bail!("Guvenlik ihlali: Sistem dizinlerine cikti yazilamaz: {:?}", target_path);
+        }
+
         let parent_dir = target_path
             .parent()
             .unwrap_or_else(|| Path::new("."));
+
+        #[cfg(unix)]
+        let current_uid = unsafe { libc::geteuid() };
+
+        if parent_dir.exists() {
+            let p_meta = std::fs::symlink_metadata(parent_dir)?;
+            if p_meta.file_type().is_symlink() {
+                anyhow::bail!("Guvenlik ihlali: Cikti ust dizini sembolik bagdir: {:?}", parent_dir);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if p_meta.uid() != current_uid {
+                    anyhow::bail!("Guvenlik ihlali: Cikti ust dizini mevcut kullaniciya ait degildir: {:?}", parent_dir);
+                }
+            }
+        }
+
+        if target_path.exists() {
+            let t_meta = std::fs::symlink_metadata(target_path)?;
+            if t_meta.file_type().is_symlink() {
+                anyhow::bail!("Guvenlik ihlali: Hedef dosya sembolik bagdir: {:?}", target_path);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if t_meta.uid() != current_uid {
+                    anyhow::bail!("Guvenlik ihlali: Hedef dosya baska bir kullaniciya aittir: {:?}", target_path);
+                }
+                if t_meta.nlink() > 1 {
+                    anyhow::bail!("Guvenlik ihlali: Hedef dosya coklu baglantiya (hardlink) sahiptir: {:?}", target_path);
+                }
+            }
+        }
 
         // Gecici dosya hedef dizinde olusturulur (farkli disk bolumleri arasi atomic rename hatasini onlemek icin)
         let temp_file = tempfile::Builder::new()
@@ -324,10 +423,33 @@ impl<'a> PdfTranslatorEngine<'a> {
     }
 }
 
-/// PDF nesnesinden okunabilir metni ayiklar.
-fn extract_text_from_object(obj: &Object) -> Option<String> {
+/// PDF nesnesinden okunabilir metni ayiklar (UTF-8, UTF-16BE/LE BOM ve Latin-1 destekli).
+pub fn extract_text_from_object(obj: &Object) -> Option<String> {
     match obj {
         Object::String(bytes, _) => {
+            if bytes.is_empty() {
+                return Some(String::new());
+            }
+            // UTF-16BE BOM: 0xFE, 0xFF
+            if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                let u16_words: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                if let Ok(s) = String::from_utf16(&u16_words) {
+                    return Some(s);
+                }
+            }
+            // UTF-16LE BOM: 0xFF, 0xFE
+            if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+                let u16_words: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                if let Ok(s) = String::from_utf16(&u16_words) {
+                    return Some(s);
+                }
+            }
             // Once UTF-8, olmazsa Latin1/Windows-1252 cozumlemesi dene
             if let Ok(s) = String::from_utf8(bytes.clone()) {
                 Some(s)

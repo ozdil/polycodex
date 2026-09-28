@@ -4,7 +4,7 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(
     name = "polycodex",
-    version = "0.1.0",
+    version = "1.1.0",
     about = "Mizanpaj ve gorselleri 1-1 koruyan, 5000 sayfa kapasiteli cok dilli PDF cevirici",
     long_about = "PDF belgelerini mizanpaj, cizim ve resimlerini aynen muhafaza ederek herhangi bir dilden hedef dile ceviren acik kaynakli evrensel cevirici."
 )]
@@ -29,11 +29,11 @@ pub struct CliArgs {
     #[arg(short = 'd', long)]
     pub output_dir: Option<PathBuf>,
 
-    /// Ceviri motoru saglayicisi: mock, libretranslate, ollama
+    /// Ceviri motoru saglayicisi: mock, libretranslate, ollama, openai
     #[arg(short = 'p', long, default_value = "mock")]
     pub provider: String,
 
-    /// Ceviri servisi REST API adresi (LibreTranslate veya Ollama icin)
+    /// Ceviri servisi REST API adresi (LibreTranslate, Ollama veya OpenAI icin)
     #[arg(long)]
     pub api_url: Option<String>,
 
@@ -44,6 +44,10 @@ pub struct CliArgs {
     /// Ollama modeli adi (ornek: llama3, mistral)
     #[arg(long, default_value = "llama3")]
     pub ollama_model: String,
+
+    /// OpenAI / LM Studio / vLLM model adi (ornek: gpt-4o-mini, qwen2.5-7b)
+    #[arg(long, default_value = "gpt-4o-mini")]
+    pub openai_model: String,
 
     /// Kullaniciya soru sormadan dogrudan calistir (otomasyon modunda)
     #[arg(long, default_value_t = false)]
