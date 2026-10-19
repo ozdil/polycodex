@@ -21,7 +21,7 @@ path = "src/main.rs"
 
 [dependencies]
 # PDF manipülasyonu ve nesne yönetimi
-lopdf = "0.33"
+lopdf = "0.42"
 
 # Platformlar arası tekil işlem dosya kilidi
 fs2 = "0.4"
